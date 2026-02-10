@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "*.instructions.md": "markdown"
+    },
+    "editor.formatOnSave": true,
+    "[markdown]": {
+        "editor.wordWrap": "on"
+    }
+}

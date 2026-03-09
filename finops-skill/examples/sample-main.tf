@@ -17,7 +17,7 @@ provider "aws" {
 
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
-  tags = { Name = "main-vpc" }
+  tags       = { Name = "main-vpc" }
 }
 
 resource "aws_subnet" "public_a" {
@@ -51,13 +51,13 @@ resource "aws_eip" "nat_b" { domain = "vpc" }
 resource "aws_nat_gateway" "az_a" {
   allocation_id = aws_eip.nat_a.id
   subnet_id     = aws_subnet.public_a.id
-  tags = { Name = "nat-az-a" }
+  tags          = { Name = "nat-az-a" }
 }
 
 resource "aws_nat_gateway" "az_b" {
   allocation_id = aws_eip.nat_b.id
   subnet_id     = aws_subnet.public_b.id
-  tags = { Name = "nat-az-b" }
+  tags          = { Name = "nat-az-b" }
 }
 
 # ──────────────────────────────────────────────
@@ -68,7 +68,7 @@ resource "aws_nat_gateway" "az_b" {
 resource "aws_instance" "web" {
   count         = 3
   ami           = "ami-0c55b159cbfafe1f0"
-  instance_type = "m5.2xlarge"   # 8 vCPU, 32GB — likely oversized for a web tier
+  instance_type = "m5.2xlarge" # 8 vCPU, 32GB — likely oversized for a web tier
 
   subnet_id = aws_subnet.private_a.id
 
@@ -89,7 +89,7 @@ resource "aws_ebs_volume" "old_data" {
   availability_zone = "us-east-1a"
   size              = 500
   type              = "gp2"
-  tags = { Name = "old-data-disk" }
+  tags              = { Name = "old-data-disk" }
 }
 
 # ──────────────────────────────────────────────
@@ -100,38 +100,38 @@ resource "aws_ebs_volume" "old_data" {
 # ⚠️ ISSUE: gp2 storage
 # ⚠️ ISSUE: High backup retention
 resource "aws_db_instance" "main" {
-  identifier        = "main-db"
-  engine            = "postgres"
-  engine_version    = "15.3"
-  instance_class    = "db.r5.2xlarge"   # 8 vCPU, 64GB RAM — very large
-  allocated_storage = 1000
-  storage_type      = "gp2"             # should be gp3
-  multi_az          = true
-  backup_retention_period = 30          # 30 days backup = lots of storage
+  identifier              = "main-db"
+  engine                  = "postgres"
+  engine_version          = "15.3"
+  instance_class          = "db.r5.2xlarge" # 8 vCPU, 64GB RAM — very large
+  allocated_storage       = 1000
+  storage_type            = "gp2" # should be gp3
+  multi_az                = true
+  backup_retention_period = 30 # 30 days backup = lots of storage
 
   username = "admin"
   password = "changeme123"
 
   skip_final_snapshot = false
-  tags = { Name = "main-db", Env = "production" }
+  tags                = { Name = "main-db", Env = "production" }
 }
 
 # ⚠️ ISSUE: Dev RDS also has multi_az = true (unnecessary)
 resource "aws_db_instance" "dev" {
-  identifier        = "dev-db"
-  engine            = "postgres"
-  engine_version    = "15.3"
-  instance_class    = "db.r5.xlarge"   # Still large for dev
-  allocated_storage = 200
-  storage_type      = "gp2"
-  multi_az          = true             # No need for HA in dev!
+  identifier              = "dev-db"
+  engine                  = "postgres"
+  engine_version          = "15.3"
+  instance_class          = "db.r5.xlarge" # Still large for dev
+  allocated_storage       = 200
+  storage_type            = "gp2"
+  multi_az                = true # No need for HA in dev!
   backup_retention_period = 14
 
   username = "admin"
   password = "changeme123"
 
   skip_final_snapshot = true
-  tags = { Name = "dev-db", Env = "dev" }
+  tags                = { Name = "dev-db", Env = "dev" }
 }
 
 # ──────────────────────────────────────────────
@@ -143,8 +143,8 @@ resource "aws_elasticache_replication_group" "redis" {
   replication_group_id = "main-redis"
   description          = "Main Redis cluster"
 
-  node_type            = "cache.r6g.xlarge"  # 4 vCPU, 13GB
-  num_cache_clusters   = 3
+  node_type                  = "cache.r6g.xlarge" # 4 vCPU, 13GB
+  num_cache_clusters         = 3
   automatic_failover_enabled = true
 
   tags = { Name = "main-redis" }
@@ -210,14 +210,14 @@ resource "aws_eks_node_group" "workers" {
   subnet_ids      = [aws_subnet.private_a.id, aws_subnet.private_b.id]
 
   instance_types = ["m5.xlarge"]
-  capacity_type  = "ON_DEMAND"   # ⚠️ No spot instances
+  capacity_type  = "ON_DEMAND" # ⚠️ No spot instances
 
   scaling_config {
     min_size     = 5
     max_size     = 10
-    desired_size = 5   # ⚠️ Always running at min capacity
+    desired_size = 5 # ⚠️ Always running at min capacity
   }
 
   # ⚠️ ISSUE: gp2 disk for nodes
-  disk_size = 100  # gp2 by default in older node group configs
+  disk_size = 100 # gp2 by default in older node group configs
 }

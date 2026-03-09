@@ -51,6 +51,10 @@ token-shield-skill/
 ```bash
 pip install pyyaml        # required for YAML input
 pip install tiktoken      # optional — improves token counting accuracy
+pip install opentelemetry-api \
+            opentelemetry-sdk \
+            opentelemetry-exporter-otlp \
+            opentelemetry-exporter-prometheus  # optional — Prometheus metrics
 ```
 
 Without `tiktoken`, the counter falls back to a `1 token ≈ 4 chars` heuristic.

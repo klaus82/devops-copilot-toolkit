@@ -9,7 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPRESS="$ROOT/scripts/compress.py"
 COUNTER="$ROOT/scripts/token_counter.py"
+PUSH_METRICS="$ROOT/scripts/push_metrics.py"
 OUTPUT_DIR="$SCRIPT_DIR/output"
+PUSH_GATEWAY="${PUSH_GATEWAY:-http://localhost:9091}"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -32,12 +34,19 @@ run_example() {
   separator
   echo -e "${BOLD}▶  $label${RESET}"
   echo -e "   Input  : $input"
-  echo -e "   Output : $output"
+  echo -e "Output : $output"
   echo ""
 
   # Run compression: compressed content → output file, Shield Report → terminal
   # shellcheck disable=SC2086
   python3 "$COMPRESS" "$input" $extra_args > "$output"
+
+  # Push metrics to Pushgateway if available
+  local instance
+  instance=$(basename "$input" | sed 's/\./_/g')
+  if python3 "$PUSH_METRICS" --input <(python3 "$COMPRESS" "$input" $extra_args --report-only 2>/dev/null) --instance "$instance" --gateway "$PUSH_GATEWAY" 2>/dev/null; then
+    echo -e "   ${GREEN}Metrics pushed to Pushgateway${RESET}"
+  fi
 
   echo ""
   echo -e "${GREEN}   Token delta:${RESET}"
@@ -51,10 +60,10 @@ run_example \
   "$OUTPUT_DIR/deployment.compressed.yaml"
 
 # ─── Example 2: Terraform file ───────────────────────────────────────────────
-run_example \
-  "Terraform ECS + ALB" \
-  "$SCRIPT_DIR/terraform/main.tf" \
-  "$OUTPUT_DIR/main.compressed.tf"
+# run_example \
+#   "Terraform ECS + ALB" \
+#   "$SCRIPT_DIR/terraform/main.tf" \
+#   "$OUTPUT_DIR/main.compressed.tf"
 
 # ─── Example 3: Application logs ─────────────────────────────────────────────
 run_example \

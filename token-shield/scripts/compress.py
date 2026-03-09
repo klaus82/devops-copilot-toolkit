@@ -18,11 +18,35 @@ Usage:
     python compress.py manifest.yaml --model gpt-4.1-mini --report
     python compress.py manifest.yaml --skip toon dedup
 """
+
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import time
 from pathlib import Path
+
+try:
+    from opentelemetry import trace, metrics
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+    from opentelemetry.exporter.prometheus import PrometheusMetricsExporter
+
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def _nullctx():
+    yield None
+
 
 # ── Local module imports (same scripts/ directory) ────────────────────────────
 _HERE = Path(__file__).parent
@@ -33,6 +57,66 @@ from toon_converter import convert as toon_convert, detect_format as _toon_detec
 from deduplicator import deduplicate_lines
 from log_distiller import distill as log_distill
 from token_counter import build_report, MODELS, DEFAULT_MODEL
+
+# ── OpenTelemetry setup ─────────────────────────────────────────────────────────
+_tracer = None
+_meter = None
+
+if OTEL_AVAILABLE:
+    resource = Resource.create({"service.name": "token-shield"})
+    provider = TracerProvider(resource=resource)
+    trace.set_tracer_provider(provider)
+    _tracer = trace.get_tracer(__name__)
+
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    metric_readers = [PeriodicExportingMetricReader(PrometheusMetricsExporter())]
+
+    if otlp_endpoint:
+        try:
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+                OTLPSpanExporter,
+            )
+            provider.add_span_processor(
+                BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint))
+            )
+        except Exception:
+            pass
+
+        try:
+            from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+                OTLPMetricExporter,
+            )
+            metric_readers.append(
+                PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=otlp_endpoint))
+            )
+        except Exception:
+            pass
+
+    metric_provider = MeterProvider(resource=resource, metric_readers=metric_readers)
+    metrics.set_meter_provider(metric_provider)
+    _meter = metrics.get_meter(__name__)
+
+    _requests_counter = _meter.create_counter(
+        "agent_requests_total",
+        description="Total number of compression requests",
+    )
+    _tokens_counter = _meter.create_counter(
+        "agent_tokens_total",
+        description="Total number of tokens processed",
+    )
+    _errors_counter = _meter.create_counter(
+        "agent_errors_total",
+        description="Total number of errors",
+    )
+    _steps_counter = _meter.create_counter(
+        "agent_steps_total",
+        description="Total number of pipeline steps executed",
+    )
+    _latency_histogram = _meter.create_histogram(
+        "agent_request_latency",
+        description="Request latency in seconds",
+        unit="s",
+    )
 
 # ──────────────────────────────────────────────
 # Pipeline
@@ -70,10 +154,8 @@ def compress(
 
     is_log = _is_log(path, fmt)
 
-    # Resolve format for config-aware steps
     config_fmt = _detect_fmt(path, None if fmt in ("auto", "log", "logs") else fmt)
 
-    # Show the resolved format in the Shield Report (not the raw "auto" token)
     if fmt == "auto":
         stats["format"] = "log" if is_log else config_fmt
     elif fmt in ("log", "logs"):
@@ -84,40 +166,82 @@ def compress(
     result = text
     stats["per_step_chars"]["input"] = len(result)
 
-    # Step 1: Minify (skip for logs or markdown — distil/dedup handles those)
-    if "minify" not in skip and not is_log:
-        try:
-            result = shrink_devops_file(result, config_fmt)
-            stats["steps_applied"].append("minify")
-        except Exception as e:
-            print(f"  [minify skipped: {e}]", file=sys.stderr)
-    stats["per_step_chars"]["after_minify"] = len(result)
+    start_time = time.perf_counter()
+    error_occurred = False
 
-    # Step 2: TOON conversion (config files only)
-    if "toon" not in skip and not is_log and config_fmt in ("yaml", "json", "hcl"):
-        try:
-            result = toon_convert(result, config_fmt)
-            stats["steps_applied"].append("toon")
-        except Exception as e:
-            print(f"  [toon skipped: {e}]", file=sys.stderr)
-    stats["per_step_chars"]["after_toon"] = len(result)
+    try:
+        with (
+            _tracer.start_as_current_span("compress") if _tracer else _nullctx() as span
+        ):
+            if span:
+                span.set_attribute("input.length", len(result))
+                span.set_attribute("format", stats["format"])
+                if path:
+                    span.set_attribute("file.path", path)
 
-    # Step 3: Distill (logs only)
-    if "distill" not in skip and is_log:
-        result, distill_stats = log_distill(result)
-        stats["steps_applied"].append("distill")
-        stats["distill"] = distill_stats
-    stats["per_step_chars"]["after_distill"] = len(result)
+            # Step 1: Minify
+            if "minify" not in skip and not is_log:
+                with _tracer.start_as_current_span("minify") if _tracer else _nullctx():
+                    try:
+                        result = shrink_devops_file(result, config_fmt)
+                        stats["steps_applied"].append("minify")
+                    except Exception as e:
+                        print(f"  [minify skipped: {e}]", file=sys.stderr)
+            stats["per_step_chars"]["after_minify"] = len(result)
 
-    # Step 4: Dedup — always as a final pass.
-    # For Markdown, disable annotations (no [×N] noise in prose) and preserve
-    # blank lines normally — consecutive blanks are already collapsed by minify.
-    if "dedup" not in skip:
-        md_mode = config_fmt == "md"
-        result, dedup_stats = deduplicate_lines(result, annotate=not md_mode)
-        stats["steps_applied"].append("dedup")
-        stats["dedup"] = dedup_stats
-    stats["per_step_chars"]["after_dedup"] = len(result)
+            # Step 2: TOON
+            if (
+                "toon" not in skip
+                and not is_log
+                and config_fmt in ("yaml", "json", "hcl")
+            ):
+                with _tracer.start_as_current_span("toon") if _tracer else _nullctx():
+                    try:
+                        result = toon_convert(result, config_fmt)
+                        stats["steps_applied"].append("toon")
+                    except Exception as e:
+                        print(f"  [toon skipped: {e}]", file=sys.stderr)
+            stats["per_step_chars"]["after_toon"] = len(result)
+
+            # Step 3: Distill
+            if "distill" not in skip and is_log:
+                with (
+                    _tracer.start_as_current_span("distill") if _tracer else _nullctx()
+                ):
+                    result, distill_stats = log_distill(result)
+                    stats["steps_applied"].append("distill")
+                    stats["distill"] = distill_stats
+            stats["per_step_chars"]["after_distill"] = len(result)
+
+            # Step 4: Dedup
+            if "dedup" not in skip:
+                with _tracer.start_as_current_span("dedup") if _tracer else _nullctx():
+                    md_mode = config_fmt == "md"
+                    result, dedup_stats = deduplicate_lines(
+                        result, annotate=not md_mode
+                    )
+                    stats["steps_applied"].append("dedup")
+                    stats["dedup"] = dedup_stats
+            stats["per_step_chars"]["after_dedup"] = len(result)
+
+            if span:
+                span.set_attribute("output.length", len(result))
+                span.set_attribute("steps_applied", ",".join(stats["steps_applied"]))
+
+    except Exception as e:
+        error_occurred = True
+        raise
+    finally:
+        latency = time.perf_counter() - start_time
+        input_tokens = len(text) // 4
+
+        if _meter:
+            _requests_counter.add(1, {"service": "token-shield"})
+            _tokens_counter.add(input_tokens, {"service": "token-shield"})
+            _steps_counter.add(len(stats["steps_applied"]), {"service": "token-shield"})
+            _latency_histogram.record(latency, {"service": "token-shield"})
+            if error_occurred:
+                _errors_counter.add(1, {"service": "token-shield"})
 
     return result, stats
 
@@ -125,6 +249,7 @@ def compress(
 # ──────────────────────────────────────────────
 # Shield Report
 # ──────────────────────────────────────────────
+
 
 def _shield_report(
     original: str,
@@ -155,7 +280,9 @@ def _shield_report(
 
     # Contextual advice
     if report.savings_pct >= 40:
-        lines.append("  ✔ Significant savings — safe to proceed with compressed payload.")
+        lines.append(
+            "  ✔ Significant savings — safe to proceed with compressed payload."
+        )
     elif report.savings_pct >= 15:
         lines.append("  ✔ Moderate savings applied.")
     else:
@@ -167,6 +294,7 @@ def _shield_report(
 # ──────────────────────────────────────────────
 # CLI
 # ──────────────────────────────────────────────
+
 
 def _cli() -> None:
     parser = argparse.ArgumentParser(
@@ -183,26 +311,34 @@ examples:
     )
     parser.add_argument("file", nargs="?", help="Input file (default: stdin).")
     parser.add_argument(
-        "--format", "-f",
+        "--format",
+        "-f",
         default="auto",
         choices=["auto", "yaml", "json", "hcl", "md", "js", "log"],
         help="Input format (default: auto-detect).",
     )
     parser.add_argument(
-        "--skip", nargs="+", choices=list(STEPS), default=[],
+        "--skip",
+        nargs="+",
+        choices=list(STEPS),
+        default=[],
         metavar="STEP",
         help=f"Skip pipeline steps. Choices: {', '.join(STEPS)}.",
     )
     parser.add_argument(
-        "--model", default=DEFAULT_MODEL, choices=list(MODELS),
+        "--model",
+        default=DEFAULT_MODEL,
+        choices=list(MODELS),
         help=f"Model for cost estimates (default: {DEFAULT_MODEL}).",
     )
     parser.add_argument(
-        "--report-only", action="store_true",
+        "--report-only",
+        action="store_true",
         help="Print Shield Report to stdout instead of stderr; suppress compressed output.",
     )
     parser.add_argument(
-        "--no-report", action="store_true",
+        "--no-report",
+        action="store_true",
         help="Suppress the Shield Report entirely.",
     )
     args = parser.parse_args()
@@ -230,6 +366,14 @@ examples:
         )
         dest = sys.stdout if args.report_only else sys.stderr
         print("\n".join(report_lines), file=dest)
+
+    if OTEL_AVAILABLE:
+        if "provider" in globals():
+            provider.force_flush()
+            provider.shutdown()
+        if "metric_provider" in globals():
+            metric_provider.force_flush()
+            metric_provider.shutdown()
 
 
 if __name__ == "__main__":

@@ -52,6 +52,8 @@ Route to appropriate specialist:
 | Cost analysis | FinOps skill |
 | CI/CD | @github-actions |
 
+For @terraform-aws: Always have the agent **propose a solution first** before implementing. Ask for feedback, iterate, then implement.
+
 ### 3. Deliver
 Review agent output, add context, present complete solution
 
@@ -68,7 +70,7 @@ Review agent output, add context, present complete solution
 ## Examples
 
 > "Set up an ECS cluster with ALB"
-→ Understand → Delegate to @terraform-aws → Deliver
+→ Understand → Delegate to @terraform-aws → @terraform-aws proposes → Feedback/iterate → Implement → Deliver
 
 > "Review my Terraform for issues"
 → Understand → Run security + finops skills → Deliver report

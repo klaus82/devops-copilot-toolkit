@@ -13,6 +13,35 @@ Use `@devops-entry` as your main interface for all DevOps tasks:
 - **Cost review**: "Analyze costs and suggest optimizations"
 - **CI/CD**: "Set up a GitHub Actions pipeline"
 
+## How to Use
+
+Each agent file starts with a YAML frontmatter that defines its name and description:
+
+```yaml
+---
+name: devops-orchestrator
+description: >
+  Main entry point for DevOps engineers. Orchestrates infrastructure provisioning,
+  security reviews, cost analysis, and CI/CD pipelines. Delegates to specialized
+  agents based on task requirements.
+---
+```
+
+This format allows AI assistants to understand when to invoke each agent. When working with an AI assistant:
+
+1. **Reference the agent file** - Point to the appropriate agent (e.g., `@devops-entry` or `@devops`)
+2. **State your intent** - Describe what you need (provision, review, pipeline)
+3. **Get delegated work** - The agent will route to specialists automatically
+
+Example workflow:
+> **You**: "Create an ECS cluster with ALB"
+> 
+> **Agent**: Analyzes your request → Delegates to @terraform-aws → Reviews output → Delivers complete solution
+
+> **You**: "Review my Terraform for cost optimization"
+> 
+> **Agent**: Analyzes your request → Invokes finops-aws skill → Reviews Terraform resources → Delivers cost optimization report
+
 ## Structure
 
 ```
@@ -28,9 +57,7 @@ devops-copilot-toolkit/
 │   ├── security/       # Security review skill
 │   └── finops/        # Cost optimization skill
 ├── prompts/           # Reusable prompt instructions
-├── hooks/             # AI-powered git hooks
-└── scripts/           # Utility scripts
-```
+└── ```
 
 ## Capabilities
 

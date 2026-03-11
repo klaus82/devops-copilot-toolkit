@@ -6,7 +6,7 @@ description: >
   before sending to agents. This saves tokens and reduces context window usage.
   Trigger on: "compress", "reduce tokens", "shrink", "optimize context", "token savings",
   "minify", "compact"
-compatibility: "Requires: Python 3.10+, scripts/compress.py from token-shield"
+compatibility: "Requires: Python 3.10+, token-shield/scripts/compress.py"
 ---
 
 # Compression Skill
@@ -70,7 +70,7 @@ The compression runs through these steps (in order):
 
 ```bash
 # Compress a Terraform file
-python /path/to/token-shield/scripts/compress.py main.tf
+python token-shield/scripts/compress.py main.tf
 
 # Compress YAML with custom model for cost estimation
 python compress.py manifest.yaml --model gpt-4.1-mini
@@ -173,4 +173,4 @@ If compression fails:
 ## Reference
 
 - Token Shield: https://github.com/anomalyco/token-shield
-- Compress.py location: `/path/to/token-shield/scripts/compress.py`
+- Compress.py location: `token-shield/scripts/compress.py`

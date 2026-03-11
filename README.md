@@ -4,6 +4,14 @@ A collection of AI agents and skills for DevOps engineers to provision infrastru
 
 ## Quick Start
 
+### Clone with Submodules
+
+```bash
+git clone --recurse-submodules https://github.com/anomalyco/devops-copilot-toolkit.git
+# Or if already cloned:
+git submodule update --init --recursive
+```
+
 ### Entry Point
 
 Use `@devops-entry` as your main interface for all DevOps tasks:
@@ -26,7 +34,9 @@ devops-copilot-toolkit/
 │   └── security/       # Security review
 ├── skills/             # Specialized AI skills
 │   ├── security/       # Security review skill
-│   └── finops/        # Cost optimization skill
+│   ├── finops/        # Cost optimization skill
+│   └── compression/   # Token compression skill
+├── token-shield/       # Submodule: Compression tools
 ├── prompts/           # Reusable prompt instructions
 ├── hooks/             # AI-powered git hooks
 └── scripts/           # Utility scripts

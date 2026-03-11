@@ -56,7 +56,7 @@ compression/
 ## Requirements
 
 - Python 3.10+
-- Token Shield scripts (compress.py)
+- Token Shield submodule (`token-shield/scripts/compress.py`)
 - Dependencies: opentelemetry (optional for metrics)
 
 ## Example
@@ -64,7 +64,7 @@ compression/
 ```
 User: "Compress my Terraform files to save tokens"
 
-→ Run: python compress.py main.tf
+→ Run: python token-shield/scripts/compress.py main.tf
 → Report: 44.5% savings ($0.000101 saved)
 → Output: Compressed Terraform code
 ```

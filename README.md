@@ -91,6 +91,7 @@ Skills are automatically invoked based on context:
 
 - **security-review**: Analyzes code for vulnerabilities, provides hardening recommendations
 - **finops-aws**: Analyzes costs, suggests optimizations
+- **compress-context**: Compresses Terraform, YAML, JSON configs to reduce tokens and costs
 
 ## Contributing
 
